@@ -120,7 +120,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
         {/* SECTION 3: HEAR IT IN ACTION (Interactive A/B Audio Player) */}
         <div id="demos" className="w-full">
-          <HearItInActionSection />
+          <HearItInActionSection onLaunchParty={onLaunchParty} />
         </div>
 
         {/* SECTION 4: THE SIGNAL FLOW (Interactive Schematic Diagram) */}
