@@ -1,0 +1,56 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+.venv
+.venv/
+env/
+venv/
+ENV/
+
+# MIXMIND Data & Cache
+data/cache/*
+!data/cache/.gitkeep
+data/library/*
+!data/library/.gitkeep
+data/trends/*
+!data/trends/.gitkeep
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Audio Files & Copyrighted Music (Strict Rule: Do not track large external music libraries)
+*.wav
+*.aiff
+*.flac
+*.m4a
+*.aac
+*.ogg
+*.alac
+data/songs/*
+# Allow bundled frontend public demo tracks
+!frontend/public/songs/*.mp3
+
+# macOS artifacts
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node / Frontend build (for future React/Tauri)
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+src-tauri/target/

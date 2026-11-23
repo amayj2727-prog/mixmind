@@ -1,0 +1,276 @@
+@charset "UTF-8";
+@import "tailwindcss";
+
+/* ==========================================================================
+   MIXMIND Design System — Brand Kit Compliant
+   
+   Colors (from Brand Tool Kit):
+     Primary Accent:    #FF4D00
+     Canvas / Dark:     #0D0D11
+     Pure White:        #FFFFFF
+     Supporting Gray:   #808080
+   
+   Typography (from Brand Tool Kit):
+     Headline Font:     Plus Jakarta Sans ExtraBold
+     UI & Body Font:    Inter Regular
+   
+   Rules:
+     - Zero gradients on surfaces
+     - Flat solid colors only
+     - Hairline 1px borders at white/8
+     - No glow, no blur, no ambient effects
+   ========================================================================== */
+
+:root {
+  --brand-orange: #FF4D00;
+  --brand-canvas: #0D0D11;
+  --brand-surface: #14141A;
+  --brand-border: rgba(255, 255, 255, 0.08);
+  --brand-gray: #808080;
+
+  --deck1-color: #FF4D00;
+  --deck2-color: #FF8533;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+}
+
+html, body {
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: var(--brand-canvas);
+  color: #FFFFFF;
+  overflow-x: hidden;
+  /* No background gradients — flat canvas */
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  margin: 0 auto;
+}
+
+.font-headline {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.font-body {
+  font-family: 'Inter', sans-serif;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Glass surface for nav — the only exception, keeps nav readable over content */
+.glass-surface {
+  background: rgba(13, 13, 17, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-surface-hover:hover {
+  background: rgba(20, 20, 26, 0.95);
+  border-color: rgba(255, 77, 0, 0.3);
+}
+
+/* Platter Spinning */
+@keyframes spin-vinyl {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.vinyl-rotating {
+  animation: spin-vinyl 2.4s linear infinite;
+}
+
+/* Vinyl Record Grooves */
+.vinyl-grooves {
+  background: repeating-radial-gradient(
+    circle at center,
+    #111116 0px,
+    #181822 2px,
+    #0E0E14 4px,
+    #1C1C26 6px
+  );
+}
+
+/* Equalizer Bars */
+@keyframes eq-pulse {
+  0%, 100% { transform: scaleY(0.2); }
+  50% { transform: scaleY(1.0); }
+}
+
+.animate-eq-1 { animation: eq-pulse 0.7s ease-in-out infinite; }
+.animate-eq-2 { animation: eq-pulse 0.5s ease-in-out infinite 0.2s; }
+.animate-eq-3 { animation: eq-pulse 0.9s ease-in-out infinite 0.4s; }
+.animate-eq-4 { animation: eq-pulse 0.6s ease-in-out infinite 0.1s; }
+
+/* Sliders */
+input[type="range"] {
+  -webkit-appearance: none;
+  background: #1C1C28;
+  border-radius: 9999px;
+  height: 6px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #FF4D00;
+  cursor: pointer;
+  border: 2px solid #FFFFFF;
+  transition: transform 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+/* Crossfader */
+.crossfader-input {
+  -webkit-appearance: none;
+  background: transparent !important;
+  height: 12px;
+  outline: none;
+}
+
+.crossfader-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 28px;
+  border-radius: 4px;
+  background: #FF4D00;
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  cursor: ew-resize;
+  transition: transform 0.1s ease;
+}
+
+.crossfader-input::-webkit-slider-thumb:hover {
+  transform: scaleY(1.06);
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0D0D11;
+}
+::-webkit-scrollbar-thumb {
+  background: #242434;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #FF4D00;
+}
+
+/* ==========================================================================
+   Flagship Hardware Audio Gear Styles (VoltageLab & Pioneer DJ Inspired)
+   ========================================================================== */
+
+/* Hardware Console Outer Chassis */
+.hardware-chassis {
+  background: linear-gradient(180deg, #181822 0%, #0E0E14 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 
+    0 25px 60px -15px rgba(0, 0, 0, 0.95),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.8);
+}
+
+/* Individual Module Bay Panels */
+.hardware-bay {
+  background: linear-gradient(180deg, #13131A 0%, #0B0B10 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+/* Authentic Knurled Rotary Audio Potentiometer / Knob */
+.hardware-knob-base {
+  background: radial-gradient(circle at 35% 35%, #2D2D3B 0%, #15151E 70%, #0A0A0F 100%);
+  box-shadow: 
+    0 4px 10px rgba(0, 0, 0, 0.8),
+    inset 0 1px 1px rgba(255, 255, 255, 0.25),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.9);
+}
+
+/* Sunken Bezel Performance Pads (MPC / Pioneer DJ) */
+.hardware-pad-socket {
+  background: #09090D;
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.9);
+}
+
+.hardware-pad-key {
+  box-shadow: 
+    0 3px 6px rgba(0, 0, 0, 0.7),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.hardware-pad-key:active {
+  transform: translateY(2px);
+  box-shadow: 
+    0 1px 2px rgba(0, 0, 0, 0.9),
+    inset 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+
+/* Authentic Motorized Jog Wheel Platter */
+.jog-wheel-outer {
+  background: conic-gradient(
+    from 0deg,
+    #1E1E28 0deg,
+    #2E2E3C 45deg,
+    #1E1E28 90deg,
+    #2E2E3C 135deg,
+    #1E1E28 180deg,
+    #2E2E3C 225deg,
+    #1E1E28 270deg,
+    #2E2E3C 315deg,
+    #1E1E28 360deg
+  );
+  box-shadow: 
+    0 12px 35px rgba(0, 0, 0, 0.95),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+/* Strobe Marks on Turntable Rim */
+.strobe-ring {
+  background: repeating-conic-gradient(
+    from 0deg,
+    #3A3A4C 0deg 1.5deg,
+    #151520 1.5deg 3deg
+  );
+}
+
+/* Recessed Fader Track */
+.hardware-fader-slot {
+  background: #08080C;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.95);
+}
+
+/* Machined Corner Hex Bolt Screw */
+.hex-screw {
+  background: radial-gradient(circle at 40% 40%, #3F3F4E 0%, #1A1A22 75%, #0F0F14 100%);
+  box-shadow: 
+    0 1px 2px rgba(0, 0, 0, 0.8),
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
+}

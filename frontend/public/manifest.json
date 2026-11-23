@@ -1,0 +1,18 @@
+{
+  "name": "MIXMIND • The AI DJ in Your Pocket",
+  "short_name": "MIXMIND",
+  "description": "Stop being the human jukebox. MIXMIND’s AI beat-matches and transitions your tracks like a pro DJ—no ₹2 lakh console required.",
+  "start_url": "/app/party",
+  "display": "standalone",
+  "background_color": "#0D0D11",
+  "theme_color": "#FF4D00",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
