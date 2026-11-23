@@ -1,76 +1,82 @@
-# 🎧 MIXMIND
+# 🎧 MIXMIND — Autonomous AI DJ & Web Audio Mixing Studio
 
-**MIXMIND** is an autonomous and copilot AI DJ desktop application designed for live music mixing with VirtualDJ.
-
-Unlike standard crossfaders or playlist generators, MIXMIND understands song structure, tracks harmonic compatibility via the Camelot Wheel, manages frequency and stem separation (preventing vocal and low-end kick clashes), and embodies distinct DJ personalities.
+**MIXMIND** is an autonomous and copilot AI DJ web application. It combines real-time Web Audio API signal processing, harmonic mixing (Camelot Wheel), dynamic beatmatching, stem separation, party DJ sound effects, and YouTube playlist mixing into an interactive browser experience.
 
 ---
 
-## 📁 Project Architecture
+## ✨ Features
 
-```
-MIXMIND/
-├── backend/
-│   ├── src/
-│   │   ├── scanner/        # Audio file discovery & hash-based indexing
-│   │   ├── analysis/       # Mutagen tag extraction & Librosa/NumPy DSP
-│   │   ├── intelligence/   # Camelot wheel harmonic rules & DJ personalities
-│   │   ├── dj_engine/      # Autopilot, Copilot, and Manual state controllers
-│   │   ├── transitions/    # 16/32/64-beat state machine & mathematical curves
-│   │   ├── remix/          # Real-time stem isolation & mashup viability
-│   │   ├── virtualdj/      # Bidirectional OSC 1.0 client & packet codecs
-│   │   ├── database/       # SQLite schema & ACID transaction layer
-│   │   └── main.py         # Primary CLI orchestrator
-│   └── tests/              # Comprehensive unit & integration tests
-├── frontend/               # Planned React + TypeScript desktop UI (Tauri)
-├── data/
-│   ├── cache/              # Audio waveforms and temporary feature caches
-│   └── library/            # Persistent SQLite database (mixmind.db)
-├── docs/                   # Architectural guides & protocol specs
-├── scripts/                # Launchers & diagnostic utilities
-├── requirements.txt        # Pinned Python audio DSP dependencies
-├── .gitignore              # Strict exclusion for user audio and caches
-└── README.md
-```
+- **🎛️ Dual DJ Decks**: Independent Deck A & Deck B with live vinyl scratch wheels, BPM pitch sliders, 3-band parametric EQ, and high-pass / low-pass resonant filters.
+- **🤖 Autonomous AI DJ**: Auto-pilot mode analyzes song energy, detects transition cues, and executes harmonic beatmatched crossfades automatically.
+- **✨ Party DJ Mode**: Simplified, party-friendly UI with single-click auto-mix, crowd noise, airhorns, and interactive party FX.
+- **🎵 YouTube DJ Mode**: Mix any YouTube track or public playlist directly in the browser with live metadata parsing.
+- **🧠 Harmonic Intelligence**: Camelot wheel key matching and energy-level trajectory planning.
+- **📱 PWA Ready**: Installable Progressive Web App with offline audio support and responsive desktop/mobile UI.
 
 ---
 
-## 🎛️ DJ Personalities
+## 🚀 Quick Start (Local Development)
 
-- **Club DJ**: Rock-solid 32-beat phrase sync (8-bar cycles), classic downbeat bass swapping, and tight vocal clash management.
-- **Melodic DJ**: Deep harmonic journeys, extended 64-beat blends, musical filter sweeps, and vocal melody preservation.
-- **Festival DJ**: High-octane peak-time transitions (16–32 beats), dramatic high-pass filter rises, and massive downbeat drops.
+### Prerequisites
+- Node.js 18+ and npm
 
----
-
-## 🚀 Quick Start
-
-### 1. Configure VirtualDJ (One-Time)
-1. Open **VirtualDJ**.
-2. Click **Settings (Gear Icon) -> Options**.
-3. Set **`oscPort`** to **`8000`**.
-
-### 2. Run MIXMIND
-From the `MIXMIND/` directory:
+### Installation & Run
 
 ```bash
-# Run with default Club DJ profile on local SONGS
-./scripts/run_mixmind.sh
+# Clone the repository
+git clone https://github.com/<your-username>/mixmind.git
+cd mixmind/frontend
 
-# Run with Melodic DJ personality
-./scripts/run_mixmind.sh --personality melodic
+# Install dependencies
+npm install
 
-# Run in Copilot mode
-./scripts/run_mixmind.sh --mode copilot
+# Start development server
+npm run dev
+```
+
+Visit `http://localhost:3000` in your browser.
+
+---
+
+## 📦 Production Build
+
+```bash
+cd frontend
+npm run build
+```
+
+The production assets will be output to `frontend/dist/`. You can preview the production build locally:
+
+```bash
+npm run preview
 ```
 
 ---
 
-## 🧪 Testing
+## 🌐 Deploying to the Web
 
-Run all unit tests:
+### Deploy on Vercel (Recommended — Free & Instant)
+1. Push this repository to your GitHub account.
+2. Go to [Vercel](https://vercel.com/new) and import your `mixmind` repository.
+3. Configure the project:
+   - **Root Directory**: `frontend`
+   - **Framework Preset**: `Vite`
+   - **Build Command**: `npm run build`
+   - **Output Directory**: `dist`
+4. Click **Deploy**. Vercel will automatically build the site and deploy the serverless YouTube proxy (`api/youtube-playlist.js`).
 
-```bash
-cd MIXMIND
-.venv/bin/python3 -m unittest discover -s backend/tests -v
-```
+### Deploy on Netlify
+1. Connect your repository on [Netlify](https://app.netlify.com/start).
+2. Set **Base directory** to `frontend`, **Build command** to `npm run build`, and **Publish directory** to `dist`.
+3. SPA routing is automatically handled via `frontend/public/_redirects`.
+
+---
+
+## 🔒 Environment Variables
+
+No secret API keys or credentials are required! All audio DSP runs locally in the browser via the Web Audio API.
+
+---
+
+## 📄 License
+MIT

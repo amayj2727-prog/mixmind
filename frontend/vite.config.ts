@@ -269,6 +269,7 @@ export default defineConfig({
   ],
   server: {
     port: 3000,
+    allowedHosts: true,
     cors: true,
     headers: {
       'Access-Control-Allow-Origin': '*',
