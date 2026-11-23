@@ -115,7 +115,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
         {/* SECTION 2: EXPLORE OUR MODULES (Hardware Architecture) */}
         <div id="modules" className="w-full">
-          <ExploreModulesSection />
+          <ExploreModulesSection onLaunchParty={onLaunchParty} />
         </div>
 
         {/* SECTION 3: HEAR IT IN ACTION (Interactive A/B Audio Player) */}

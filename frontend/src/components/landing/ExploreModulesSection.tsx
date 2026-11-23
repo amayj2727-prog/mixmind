@@ -1,8 +1,16 @@
-import React from 'react';
-import { ArrowUpRight, Cpu, Disc3, Sparkles, Sliders } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowRight, Cpu, Disc3, Sparkles, Sliders, Volume2, Play, CheckCircle2 } from 'lucide-react';
 import { YoutubeIcon } from '../youtube/YoutubeIcon';
+import { audioEngine } from '../../audio/audioEngine';
 
-export const ExploreModulesSection: React.FC = () => {
+interface ExploreModulesSectionProps {
+  onLaunchParty?: () => void;
+}
+
+export const ExploreModulesSection: React.FC<ExploreModulesSectionProps> = ({ onLaunchParty }) => {
+  const [activeModule, setActiveModule] = useState<string>('01');
+  const [isPlayingAudio, setIsPlayingAudio] = useState<boolean>(false);
+
   const modules = [
     {
       id: '01',
@@ -10,7 +18,9 @@ export const ExploreModulesSection: React.FC = () => {
       badge: 'QUANTIZE',
       caption: '32-beat downbeat lock',
       icon: Disc3,
-      accent: 'border-[#FF4D00]/40'
+      description: 'Aligns song measures, downbeats, and 32-beat drops mathematically so tracks blend without trainwrecking.',
+      actionText: 'Launch Phrase Sync in Party Mode',
+      soundType: 'phrase'
     },
     {
       id: '02',
@@ -18,7 +28,9 @@ export const ExploreModulesSection: React.FC = () => {
       badge: 'HARMONIC',
       caption: 'Zero musical clash',
       icon: Cpu,
-      accent: 'border-white/10'
+      description: 'Camelot Wheel harmonic key matching algorithm guarantees musical compatibility between adjacent tracks.',
+      actionText: 'Try Harmonic Mixing in Party Mode',
+      soundType: 'harmonic'
     },
     {
       id: '03',
@@ -26,7 +38,9 @@ export const ExploreModulesSection: React.FC = () => {
       badge: 'STEM DSP',
       caption: '-40dB low-shelf kill',
       icon: Sliders,
-      accent: 'border-white/10'
+      description: 'Real-time low-frequency stem crossover. Low frequencies from Deck A are cut at the exact bar Deck B kicks in.',
+      actionText: 'Test Bass Swap in Party Mode',
+      soundType: 'bass'
     },
     {
       id: '04',
@@ -34,7 +48,9 @@ export const ExploreModulesSection: React.FC = () => {
       badge: 'PERFORMANCE',
       caption: 'Airhorns & 808 drops',
       icon: Sparkles,
-      accent: 'border-white/10'
+      description: 'Low-latency Web Audio soundboard triggering stadium airhorns, tape spinbacks, and sub-bass drops on command.',
+      actionText: 'Play Sound FX in Party Mode',
+      soundType: 'airhorn'
     },
     {
       id: '05',
@@ -42,9 +58,48 @@ export const ExploreModulesSection: React.FC = () => {
       badge: 'CRATE LOCK',
       caption: 'Strict playlist pool',
       icon: YoutubeIcon,
-      accent: 'border-white/10'
+      description: 'Extracts full tracklists and metadata from any public YouTube playlist or mix, locking the AI DJ exclusively to your curation.',
+      actionText: 'Mix YouTube Playlists in Party Mode',
+      soundType: 'youtube'
     }
   ];
+
+  const currentMod = modules.find((m) => m.id === activeModule) || modules[0];
+
+  const handleModuleClick = async (mod: typeof modules[0]) => {
+    setActiveModule(mod.id);
+    setIsPlayingAudio(true);
+
+    try {
+      await audioEngine.unlockAllAudio();
+
+      if (mod.soundType === 'airhorn') {
+        audioEngine.triggerAirhorn();
+      } else if (mod.soundType === 'bass') {
+        audioEngine.triggerSubDrop();
+      } else if (mod.soundType === 'phrase' || mod.soundType === 'harmonic' || mod.soundType === 'youtube') {
+        // Synthesize quick confirmation tone
+        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(mod.id === '01' ? 440 : mod.id === '02' ? 523.25 : 659.25, ctx.currentTime);
+          gain.gain.setValueAtTime(0.18, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.36);
+        }
+      }
+    } catch {
+      // Audio autoplay policy catch
+    }
+
+    setTimeout(() => setIsPlayingAudio(false), 400);
+  };
 
   return (
     <section className="py-16 w-full border-t border-white/[0.08]">
@@ -58,46 +113,119 @@ export const ExploreModulesSection: React.FC = () => {
           </h2>
         </div>
         <p className="text-xs font-mono text-zinc-400">
-          5 integrated algorithmic DSP blocks • 48kHz audio pipeline
+          Click any module to test audio & inspect DSP architecture
         </p>
       </div>
 
-      {/* 5 Compact Modular Cards — Visual & Minimal Text */}
+      {/* 5 Interactive Clickable Module Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {modules.map((m) => {
           const Icon = m.icon;
+          const isSelected = activeModule === m.id;
           return (
-            <div
+            <button
               key={m.id}
-              className={`bg-[#14141A] hover:bg-[#181824] border ${m.accent} hover:border-[#FF4D00] p-4 rounded-2xl flex flex-col justify-between transition-all group cursor-default shadow-sm min-h-[140px]`}
+              onClick={() => handleModuleClick(m)}
+              className={`p-4 rounded-2xl flex flex-col justify-between transition-all group cursor-pointer shadow-md min-h-[145px] text-left border relative overflow-hidden active:scale-95 ${
+                isSelected
+                  ? 'bg-[#181824] border-[#FF4D00] shadow-[#FF4D00]/25'
+                  : 'bg-[#14141A] hover:bg-[#181822] border-white/10 hover:border-white/30'
+              }`}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono text-zinc-500 font-black">
+              {isSelected && (
+                <div className="absolute top-0 right-0 w-8 h-8 bg-linear-to-bl from-[#FF4D00]/40 to-transparent pointer-events-none" />
+              )}
+
+              <div className="flex items-center justify-between w-full">
+                <span
+                  className={`text-[10px] font-mono font-black ${
+                    isSelected ? 'text-[#FF4D00]' : 'text-zinc-500 group-hover:text-zinc-400'
+                  }`}
+                >
                   {m.id}
                 </span>
-                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white/[0.06] text-zinc-400 uppercase font-bold">
+                <span
+                  className={`text-[9px] font-mono px-1.5 py-0.5 rounded uppercase font-bold transition-colors ${
+                    isSelected
+                      ? 'bg-[#FF4D00] text-white'
+                      : 'bg-white/[0.06] text-zinc-400 group-hover:text-zinc-300'
+                  }`}
+                >
                   {m.badge}
                 </span>
               </div>
 
-              {/* Center Hardware Icon with Glow */}
-              <div className="my-3 flex items-center justify-center">
-                <div className="w-10 h-10 rounded-xl bg-[#0D0D12] border border-white/10 flex items-center justify-center group-hover:border-[#FF4D00]/50 group-hover:bg-[#FF4D00]/10 transition-colors">
-                  <Icon className="w-5 h-5 text-zinc-300 group-hover:text-[#FF4D00] transition-colors" />
+              {/* Center Hardware Icon with Live Click Feedback */}
+              <div className="my-3 flex items-center justify-center w-full">
+                <div
+                  className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all ${
+                    isSelected
+                      ? 'bg-[#FF4D00]/20 border border-[#FF4D00] text-[#FF4D00] shadow-md shadow-[#FF4D00]/30 scale-105'
+                      : 'bg-[#0D0D12] border border-white/10 text-zinc-300 group-hover:border-[#FF4D00]/40 group-hover:text-[#FF4D00]'
+                  }`}
+                >
+                  <Icon className="w-5 h-5" />
                 </div>
               </div>
 
-              <div className="border-t border-white/[0.06] pt-2 text-left">
-                <h3 className="font-headline font-black text-xs text-white group-hover:text-[#FF4D00] transition-colors truncate">
+              <div className="border-t border-white/[0.06] pt-2 w-full">
+                <h3
+                  className={`font-headline font-black text-xs transition-colors truncate ${
+                    isSelected ? 'text-[#FF4D00]' : 'text-white group-hover:text-[#FF4D00]'
+                  }`}
+                >
                   {m.title}
                 </h3>
                 <p className="text-[10px] font-mono text-zinc-400 truncate mt-0.5">
                   {m.caption}
                 </p>
               </div>
-            </div>
+            </button>
           );
         })}
+      </div>
+
+      {/* Selected Module Interactive Drawer */}
+      <div className="mt-4 bg-[#14141A] border border-[#FF4D00]/30 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl animate-in fade-in duration-150">
+        <div className="flex items-center gap-3.5 text-left">
+          <div className="w-10 h-10 rounded-xl bg-[#FF4D00]/15 border border-[#FF4D00]/50 flex items-center justify-center shrink-0 text-[#FF4D00]">
+            <CheckCircle2 className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono font-bold text-[#FF4D00]">
+                MODULE {currentMod.id}: {currentMod.title}
+              </span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/[0.08] text-zinc-300 font-bold">
+                {currentMod.badge}
+              </span>
+            </div>
+            <p className="text-xs text-zinc-300 mt-1 max-w-2xl leading-relaxed">
+              {currentMod.description}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5 w-full sm:w-auto shrink-0 justify-end">
+          <button
+            onClick={() => handleModuleClick(currentMod)}
+            className="px-3.5 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-xs font-headline font-bold text-white flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+            title="Test Module Audio"
+          >
+            <Volume2 className="w-4 h-4 text-[#FF4D00]" />
+            <span>Test Tone</span>
+          </button>
+
+          {onLaunchParty && (
+            <button
+              onClick={onLaunchParty}
+              className="px-4 py-2 rounded-xl bg-[#FF4D00] hover:bg-[#FF5A00] text-xs font-headline font-black text-white flex items-center gap-2 transition-all cursor-pointer shadow-md shadow-[#FF4D00]/30 active:scale-95"
+            >
+              <span>{currentMod.actionText}</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
       </div>
     </section>
   );
