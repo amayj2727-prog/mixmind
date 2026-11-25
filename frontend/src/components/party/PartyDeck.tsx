@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Play,
   Pause,
@@ -13,10 +13,10 @@ import {
   ChevronUp,
   Sparkles,
   Flame,
-  Radio,
-  Clock
+  Info
 } from 'lucide-react';
 import { YoutubeIcon } from '../youtube/YoutubeIcon';
+import { YouTubeDualDeck } from '../youtube/YouTubeDualDeck';
 import { Track, LockedPlaylist } from '../../types';
 import { processAudioFile } from '../../utils/audioFileHelper';
 import { audioEngine } from '../../audio/audioEngine';
@@ -34,6 +34,7 @@ interface PartyDeckProps {
   onBlendIntervalChange: (seconds: number) => void;
   onTriggerInstantMix: () => void;
   onSkipNextTrack: () => void;
+  onChangeNextTrack?: () => void;
   isTransitionExecuting: boolean;
   libraryTracks: Track[];
   lockedPlaylist?: LockedPlaylist | null;
@@ -47,7 +48,15 @@ interface PartyDeckProps {
   onTriggerSpinback: () => void;
   onTriggerSubDrop: () => void;
   onTriggerEchoFreeze: () => void;
+  deck1Track?: Track | null;
+  deck2Track?: Track | null;
+  deck1Playing?: boolean;
+  deck2Playing?: boolean;
+  crossfader?: number;
+  isAudioMuted?: boolean;
 }
+
+const BAR_COUNT = 36;
 
 export const PartyDeck: React.FC<PartyDeckProps> = ({
   currentTrack,
@@ -62,6 +71,7 @@ export const PartyDeck: React.FC<PartyDeckProps> = ({
   onBlendIntervalChange,
   onTriggerInstantMix,
   onSkipNextTrack,
+  onChangeNextTrack,
   isTransitionExecuting,
   libraryTracks,
   lockedPlaylist,
@@ -74,12 +84,86 @@ export const PartyDeck: React.FC<PartyDeckProps> = ({
   onTriggerAirhorn,
   onTriggerSpinback,
   onTriggerSubDrop,
-  onTriggerEchoFreeze
+  onTriggerEchoFreeze,
+  deck1Track,
+  deck2Track,
+  deck1Playing = false,
+  deck2Playing = false,
+  crossfader = 0,
+  isAudioMuted = false
 }) => {
   const [showLibrary, setShowLibrary] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activePad, setActivePad] = useState<string | null>(null);
+  const [useYoutubeIframe, setUseYoutubeIframe] = useState<boolean>(false);
+  const [bars, setBars] = useState<number[]>(() => Array(BAR_COUNT).fill(4));
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const rafRef = useRef<number | null>(null);
+  const freqDataRef = useRef<Uint8Array<ArrayBuffer>>(new Uint8Array(64));
+
+  const hasRealYouTubeStream =
+    !!lockedPlaylist &&
+    lockedPlaylist.tracks.some((t) => !!t.youtubeId && /^[a-zA-Z0-9_-]{11}$/.test(t.youtubeId));
+
+  // Reset YouTube IFrame toggle if playlist is unlocked
+  useEffect(() => {
+    if (!hasRealYouTubeStream && useYoutubeIframe) {
+      setUseYoutubeIframe(false);
+    }
+  }, [hasRealYouTubeStream, useYoutubeIframe]);
+
+  // Mute local Web Audio decks when user explicitly selects YouTube IFrame Stream
+  useEffect(() => {
+    if (useYoutubeIframe) {
+      audioEngine.setMasterMute(true);
+    } else {
+      audioEngine.setMasterMute(isAudioMuted);
+    }
+  }, [useYoutubeIframe, isAudioMuted]);
+
+  const stopWaveformLoop = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    setBars(Array(BAR_COUNT).fill(4));
+  }, []);
+
+  // Live AnalyserNode animation loop
+  useEffect(() => {
+    if (!isPlaying) {
+      stopWaveformLoop();
+      return;
+    }
+
+    const tick = () => {
+      const hasLive = audioEngine.getFrequencyData(freqDataRef.current);
+      if (hasLive && !useYoutubeIframe) {
+        const data = freqDataRef.current;
+        const nextBars: number[] = [];
+        for (let i = 0; i < BAR_COUNT; i++) {
+          const binIdx = Math.min(data.length - 1, Math.floor((i / BAR_COUNT) * (data.length * 0.75)));
+          const val = data[binIdx] || 0;
+          nextBars.push(Math.round(4 + (val / 255) * 24));
+        }
+        setBars(nextBars);
+      } else {
+        // Fallback pulse when YouTube IFrame mode is active (cross-origin stream)
+        const now = performance.now() / 180;
+        const nextBars = Array.from({ length: BAR_COUNT }, (_, i) =>
+          Math.round(6 + Math.abs(Math.sin(i * 0.45 + now)) * 18)
+        );
+        setBars(nextBars);
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      stopWaveformLoop();
+    };
+  }, [isPlaying, useYoutubeIframe, stopWaveformLoop]);
 
   const formatTime = (seconds: number) => {
     if (!seconds || isNaN(seconds) || seconds < 0) return '0:00';
@@ -88,7 +172,8 @@ export const PartyDeck: React.FC<PartyDeckProps> = ({
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
-  const handlePadTrigger = (id: string, fn: () => void) => {
+  const handlePadTrigger = async (id: string, fn: () => void) => {
+    await audioEngine.unlockAllAudio();
     setActivePad(id);
     fn();
     setTimeout(() => setActivePad(null), 300);
@@ -116,38 +201,44 @@ export const PartyDeck: React.FC<PartyDeckProps> = ({
 
   return (
     <div className="w-full max-w-4xl mx-auto px-3 sm:px-6 py-4 select-none font-body text-white">
-      {/* MAIN CONTAINER: Sleek, friendly dark glassmorphism */}
       <div className="bg-[#121218]/90 backdrop-blur-xl border border-white/[0.08] rounded-3xl p-5 sm:p-8 shadow-2xl relative overflow-hidden flex flex-col gap-6">
         
         {/* TOP STATUS / QUICK BAR */}
         <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-white/[0.06]">
-          {/* Track Telemetry Badge */}
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 border border-white/[0.08] text-xs font-mono">
               <span className="w-2 h-2 rounded-full bg-[#FF4D00] animate-pulse" />
-              <span className="font-bold text-[#FF4D00]">{currentTrack?.bpm || 128} BPM</span>
+              <span className="font-bold text-[#FF4D00]">{Math.round(currentTrack?.bpm || 128)} BPM</span>
               <span className="text-zinc-500">•</span>
               <span className="text-zinc-300 font-semibold">{currentTrack?.key || '8B'}</span>
             </div>
 
-            {/* AI DJ Badge */}
             <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#FF4D00]/10 border border-[#FF4D00]/25 text-[11px] font-headline font-bold text-[#FF4D00]">
               <Sparkles className="w-3 h-3 text-[#FF4D00]" />
-              <span>AI DJ ACTIVE</span>
+              <span>{useYoutubeIframe ? 'YOUTUBE DUAL-DECK' : 'WEB AUDIO DSP ACTIVE'}</span>
             </div>
           </div>
 
           {/* YouTube DJ Mode Pill */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {lockedPlaylist ? (
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#FF4D00]/15 border border-[#FF4D00]/50 text-xs shadow-sm">
                 <Lock className="w-3.5 h-3.5 text-[#FF4D00]" />
-                <span className="font-headline font-bold text-white truncate max-w-[150px] sm:max-w-[200px]">
+                <span className="font-headline font-bold text-white truncate max-w-[140px] sm:max-w-[180px]">
                   {lockedPlaylist.title}
                 </span>
                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/60 text-[#FF4D00] font-bold">
                   {lockedPlaylist.trackCount} Songs
                 </span>
+                {hasRealYouTubeStream && (
+                  <button
+                    onClick={() => setUseYoutubeIframe((prev) => !prev)}
+                    className="text-[10px] font-mono px-2 py-0.5 rounded bg-red-600/30 border border-red-500/40 text-white hover:bg-red-600/50 cursor-pointer"
+                    title="Switch between YouTube IFrame dual-deck stream and Local Web Audio DSP"
+                  >
+                    {useYoutubeIframe ? 'Use Local DSP' : 'Use YT Stream'}
+                  </button>
+                )}
                 <button
                   onClick={onUnlockPlaylist}
                   className="text-[11px] text-zinc-400 hover:text-white underline ml-1 cursor-pointer"
@@ -192,41 +283,45 @@ export const PartyDeck: React.FC<PartyDeckProps> = ({
           </div>
         </div>
 
+        {/* YOUTUBE DUAL-DECK CONTROLLER (when YouTube IFrame Stream is selected) */}
+        <YouTubeDualDeck
+          enabled={useYoutubeIframe && hasRealYouTubeStream}
+          deck1VideoId={deck1Track?.youtubeId}
+          deck2VideoId={deck2Track?.youtubeId}
+          deck1Playing={deck1Playing}
+          deck2Playing={deck2Playing}
+          crossfader={crossfader}
+          isMuted={isAudioMuted}
+        />
+
         {/* HERO STAGE: Spinning Vinyl Turntable & Now Playing */}
         <div className="flex flex-col items-center justify-center text-center gap-5 my-2">
-          {/* Animated Vinyl Platter with Ambient Glow */}
           <div className="relative group">
-            {/* Ambient Soundwave Glow */}
             <div
               className={`absolute -inset-4 rounded-full bg-[#FF4D00] blur-2xl opacity-20 transition-opacity duration-700 pointer-events-none ${
                 isPlaying ? 'opacity-35 scale-105' : 'opacity-10 scale-95'
               }`}
             />
 
-            {/* Vinyl Record */}
             <div
               className={`w-52 h-52 sm:w-64 sm:h-64 rounded-full vinyl-grooves border-4 border-black/80 shadow-2xl relative flex items-center justify-center transition-all ${
                 isPlaying ? 'vinyl-rotating' : ''
               }`}
             >
-              {/* Outer Grooves Ring */}
               <div className="absolute inset-2 rounded-full border border-white/5 pointer-events-none" />
               <div className="absolute inset-5 rounded-full border border-white/5 pointer-events-none" />
               <div className="absolute inset-8 rounded-full border border-white/5 pointer-events-none" />
 
-              {/* Center Vinyl Label */}
               <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-linear-to-br from-[#FF4D00] to-[#D93D00] shadow-lg flex flex-col items-center justify-center text-white border-4 border-zinc-900 relative">
                 <Music className="w-8 h-8 text-white drop-shadow-md" />
                 <span className="text-[8px] font-headline font-black uppercase tracking-widest text-white/90 mt-1">
                   MIXMIND
                 </span>
-                {/* Spindle hole */}
                 <div className="w-3.5 h-3.5 rounded-full bg-zinc-950 border border-white/30 absolute" />
               </div>
             </div>
           </div>
 
-          {/* Clean Track Title & Artist */}
           <div className="space-y-1.5 max-w-lg px-4">
             <h2 className="font-headline font-extrabold text-2xl sm:text-3xl text-white tracking-tight truncate">
               {currentTrack?.title || 'Party All Night (Extended)'}
@@ -236,19 +331,15 @@ export const PartyDeck: React.FC<PartyDeckProps> = ({
             </p>
           </div>
 
-          {/* Interactive Live Waveform Visualizer & Seek Bar */}
+          {/* Interactive Live AnalyserNode Waveform & Seek Bar */}
           <div className="w-full max-w-md space-y-2">
-            {/* Pulsing Visualizer Bars */}
             <div className="h-8 flex items-end justify-center gap-1 px-2">
-              {Array.from({ length: 36 }).map((_, i) => {
-                const height = isPlaying
-                  ? Math.abs(Math.sin(i * 0.45 + timeElapsed * 3.5)) * 22 + 6
-                  : 4;
-                const isPlayed = i / 36 <= progressPercent / 100;
+              {bars.map((height, i) => {
+                const isPlayed = i / BAR_COUNT <= progressPercent / 100;
                 return (
                   <div
                     key={i}
-                    className="flex-1 rounded-full transition-all duration-75"
+                    className="flex-1 rounded-full transition-[height] duration-75"
                     style={{
                       height: `${Math.max(4, height)}px`,
                       backgroundColor: isPlayed ? '#FF4D00' : '#272733',
@@ -259,7 +350,6 @@ export const PartyDeck: React.FC<PartyDeckProps> = ({
               })}
             </div>
 
-            {/* Click-to-Seek Scrubber */}
             <div
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -276,25 +366,25 @@ export const PartyDeck: React.FC<PartyDeckProps> = ({
               </div>
             </div>
 
-            {/* Time Indicators */}
             <div className="flex items-center justify-between text-xs font-mono text-zinc-400 px-1">
               <span className="text-[#FF4D00] font-bold">{formatTime(timeElapsed)}</span>
               <span>{formatTime(duration)}</span>
             </div>
           </div>
 
-          {/* PRIMARY TRANSPORT CONTROLS (Centerpiece) */}
+          {/* PRIMARY TRANSPORT CONTROLS */}
           <div className="flex items-center justify-center gap-4 sm:gap-6 mt-1">
-            {/* Restart / Cue */}
             <button
-              onClick={() => onSeek(0)}
+              onClick={() => {
+                audioEngine.cancelPendingStarts();
+                onSeek(0);
+              }}
               className="w-12 h-12 rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-zinc-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-90"
               title="Restart Track (Cue)"
             >
               <RotateCcw className="w-5 h-5" />
             </button>
 
-            {/* Giant Main Play / Pause Button */}
             <button
               onClick={async () => {
                 await audioEngine.unlockAllAudio();
@@ -314,28 +404,28 @@ export const PartyDeck: React.FC<PartyDeckProps> = ({
               )}
             </button>
 
-            {/* Next Song / Skip */}
             <button
               onClick={onSkipNextTrack}
               className="w-12 h-12 rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-zinc-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-90"
-              title="Skip to Next Track"
+              title={isTransitionExecuting ? 'Abort Crossfade & Snap to Next Track' : 'Skip to Next Track'}
             >
               <SkipForward className="w-5 h-5" />
             </button>
           </div>
 
-          {/* GLOWING AUTO-MIX TRIGGER BUTTON */}
+          {/* GLOWING AUTO-MIX TRIGGER BUTTON (Guarded against double-trigger) */}
           <div className="w-full max-w-sm mt-1">
             <button
               onClick={async () => {
+                if (isTransitionExecuting) return;
                 await audioEngine.unlockAllAudio();
                 onTriggerInstantMix();
               }}
               disabled={isTransitionExecuting}
-              className={`w-full py-3.5 px-6 rounded-2xl font-headline font-black text-sm flex items-center justify-center gap-2.5 transition-all cursor-pointer shadow-lg active:scale-95 border ${
+              className={`w-full py-3.5 px-6 rounded-2xl font-headline font-black text-sm flex items-center justify-center gap-2.5 transition-all shadow-lg border ${
                 isTransitionExecuting
-                  ? 'bg-[#FF4D00]/30 border-[#FF4D00] text-white animate-pulse'
-                  : 'bg-linear-to-r from-[#FF4D00] to-[#E64400] hover:from-[#FF5A00] hover:to-[#FF4D00] border-[#FF4D00]/80 text-white shadow-[#FF4D00]/40'
+                  ? 'bg-[#FF4D00]/30 border-[#FF4D00] text-white animate-pulse cursor-not-allowed'
+                  : 'bg-linear-to-r from-[#FF4D00] to-[#E64400] hover:from-[#FF5A00] hover:to-[#FF4D00] border-[#FF4D00]/80 text-white shadow-[#FF4D00]/40 cursor-pointer active:scale-95'
               }`}
             >
               <Zap className="w-4 h-4 fill-white" />
@@ -362,7 +452,7 @@ export const PartyDeck: React.FC<PartyDeckProps> = ({
                   UP NEXT
                 </span>
                 <span className="text-[10px] font-mono text-zinc-500">
-                  {incomingTrack?.bpm || 128} BPM • Harmonic Match
+                  {Math.round(incomingTrack?.bpm || 128)} BPM • {incomingTrack?.key || '9A'} Harmonic Match
                 </span>
               </div>
               <p className="font-headline font-bold text-sm text-white truncate max-w-[260px] sm:max-w-xs">
@@ -376,53 +466,70 @@ export const PartyDeck: React.FC<PartyDeckProps> = ({
 
           <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
             <button
-              onClick={onSkipNextTrack}
-              className="px-3 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-xs font-headline font-bold text-zinc-300 hover:text-white border border-white/10 transition-all cursor-pointer"
+              onClick={onChangeNextTrack || onSkipNextTrack}
+              disabled={isTransitionExecuting}
+              className="px-3 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] disabled:opacity-40 text-xs font-headline font-bold text-zinc-300 hover:text-white border border-white/10 transition-all cursor-pointer"
             >
               Change Track
             </button>
             <button
               onClick={async () => {
+                if (isTransitionExecuting) return;
                 await audioEngine.unlockAllAudio();
                 onTriggerInstantMix();
               }}
-              className="px-3.5 py-1.5 rounded-xl bg-[#FF4D00] hover:bg-[#FF5A00] text-xs font-headline font-black text-white transition-all cursor-pointer shadow-xs active:scale-95"
+              disabled={isTransitionExecuting}
+              className="px-3.5 py-1.5 rounded-xl bg-[#FF4D00] hover:bg-[#FF5A00] disabled:opacity-50 text-xs font-headline font-black text-white transition-all cursor-pointer shadow-xs active:scale-95"
             >
-              Mix In Now
+              {isTransitionExecuting ? 'Mixing...' : 'Mix In Now'}
             </button>
           </div>
         </div>
 
-        {/* PARTY DJ FX PADS: 4 Big Instant Crowd Pleasers */}
+        {/* PARTY DJ FX PADS */}
         <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs font-headline font-bold text-zinc-400 px-1">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-headline font-bold text-zinc-400 px-1">
             <span className="flex items-center gap-1.5">
               <Flame className="w-3.5 h-3.5 text-[#FF4D00]" />
               <span>PARTY SOUND FX</span>
             </span>
-            <span className="text-[10px] font-mono text-zinc-500">TAP FOR INSTANT SOUND</span>
+            {useYoutubeIframe ? (
+              <span className="text-[10px] font-mono text-amber-400 flex items-center gap-1">
+                <Info className="w-3 h-3" />
+                <span>Echo Freeze & Spinback apply to Local Crate audio only</span>
+              </span>
+            ) : (
+              <span className="text-[10px] font-mono text-zinc-500">LIMITER PROTECTED • ZERO CLIPPING</span>
+            )}
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             {[
-              { id: 'airhorn', label: 'AIRHORN', icon: '📢', fn: onTriggerAirhorn },
-              { id: 'spinback', label: 'SPINBACK', icon: '🔄', fn: onTriggerSpinback },
-              { id: 'subdrop', label: '808 DROP', icon: '💥', fn: onTriggerSubDrop },
-              { id: 'echofreeze', label: 'ECHO FREEZE', icon: '❄️', fn: onTriggerEchoFreeze }
-            ].map((pad) => (
-              <button
-                key={pad.id}
-                onClick={() => handlePadTrigger(pad.id, pad.fn)}
-                className={`py-3 px-3 rounded-2xl border text-xs font-headline font-black flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-90 shadow-sm ${
-                  activePad === pad.id
-                    ? 'bg-[#FF4D00] text-white border-[#FF4D00] shadow-[#FF4D00]/50 scale-95'
-                    : 'bg-black/50 hover:bg-white/[0.08] border-white/10 text-white'
-                }`}
-              >
-                <span className="text-base">{pad.icon}</span>
-                <span>{pad.label}</span>
-              </button>
-            ))}
+              { id: 'airhorn', label: 'AIRHORN', icon: '📢', fn: onTriggerAirhorn, localOnly: false },
+              { id: 'spinback', label: 'SPINBACK', icon: '🔄', fn: onTriggerSpinback, localOnly: true },
+              { id: 'subdrop', label: '808 DROP', icon: '💥', fn: onTriggerSubDrop, localOnly: false },
+              { id: 'echofreeze', label: 'ECHO FREEZE', icon: '❄️', fn: onTriggerEchoFreeze, localOnly: true }
+            ].map((pad) => {
+              const disabledForYt = useYoutubeIframe && pad.localOnly;
+              return (
+                <button
+                  key={pad.id}
+                  disabled={disabledForYt}
+                  onClick={() => handlePadTrigger(pad.id, pad.fn)}
+                  title={disabledForYt ? 'Switch to Local DSP mode to use deck audio effects' : `Trigger ${pad.label}`}
+                  className={`py-3 px-3 rounded-2xl border text-xs font-headline font-black flex items-center justify-center gap-2 transition-all shadow-sm ${
+                    disabledForYt
+                      ? 'bg-black/30 border-white/5 text-zinc-600 cursor-not-allowed'
+                      : activePad === pad.id
+                      ? 'bg-[#FF4D00] text-white border-[#FF4D00] shadow-[#FF4D00]/50 scale-95 cursor-pointer'
+                      : 'bg-black/50 hover:bg-white/[0.08] border-white/10 text-white cursor-pointer active:scale-90'
+                  }`}
+                >
+                  <span className="text-base">{pad.icon}</span>
+                  <span>{pad.label}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -447,7 +554,6 @@ export const PartyDeck: React.FC<PartyDeckProps> = ({
             </button>
           </div>
 
-          {/* Expandable Music List */}
           {showLibrary && (
             <div className="mt-3 space-y-2.5 animate-in fade-in duration-200">
               <div className="relative">
@@ -509,7 +615,6 @@ export const PartyDeck: React.FC<PartyDeckProps> = ({
           )}
         </div>
 
-        {/* Hidden File Picker */}
         <input
           ref={fileInputRef}
           type="file"

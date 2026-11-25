@@ -517,9 +517,9 @@ export async function fetchYouTubePlaylist(inputUrl: string): Promise<FetchPlayl
 
       clearTimeout(timeoutId);
 
-      if (res && res.ok) {
-        const data = await res.json();
-        if (data && data.success && data.playlist && data.playlist.tracks?.length > 0) {
+      if (res) {
+        const data = await res.json().catch(() => null);
+        if (res.ok && data && data.success && data.playlist && data.playlist.tracks?.length > 0) {
           return {
             success: true,
             playlist: {
@@ -529,6 +529,13 @@ export async function fetchYouTubePlaylist(inputUrl: string): Promise<FetchPlayl
               lockedAt: new Date().toLocaleTimeString()
             },
             isSingleVideo: false
+          };
+        }
+        // Explicitly surface private/invalid playlist errors rather than silently faking
+        if (res.status === 403 || res.status === 404) {
+          return {
+            success: false,
+            error: data?.error || 'This YouTube playlist is private, deleted, or does not exist.'
           };
         }
       }

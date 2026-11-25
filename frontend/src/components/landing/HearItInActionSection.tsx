@@ -1,9 +1,55 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, Volume2, ArrowRight, Sparkles } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Play, Pause, Volume2, ArrowRight } from 'lucide-react';
+import { audioEngine } from '../../audio/audioEngine';
 
 interface HearItInActionSectionProps {
   onLaunchParty?: () => void;
 }
+
+const DEMOS = [
+  {
+    id: 0,
+    title: 'Party All Night (Extended)',
+    artist: 'Yo Yo Honey Singh',
+    key: '8B',
+    bpm: '130 BPM',
+    src: '/songs/party_all_night.mp3',
+    startTime: 30,
+    dur: '0:15'
+  },
+  {
+    id: 1,
+    title: 'Bollywood Club Blend',
+    artist: 'Honey Singh & Jaz Dhami',
+    key: '9A',
+    bpm: '130 BPM',
+    src: '/songs/high_heels.mp3',
+    startTime: 20,
+    dur: '0:15'
+  },
+  {
+    id: 2,
+    title: 'Desi Hip-Hop Bass Drop',
+    artist: 'Yo Yo Honey Singh',
+    key: '8A',
+    bpm: '128 BPM',
+    src: '/songs/blue_eyes.mp3',
+    startTime: 15,
+    dur: '0:15'
+  },
+  {
+    id: 3,
+    title: 'High-Energy Party Anthem',
+    artist: 'Yo Yo Honey Singh',
+    key: '8B',
+    bpm: '128 BPM',
+    src: '/songs/dope_shope.mp3',
+    startTime: 15,
+    dur: '0:15'
+  }
+];
+
+const BAR_COUNT = 44;
 
 export const HearItInActionSection: React.FC<HearItInActionSectionProps> = ({ onLaunchParty }) => {
   const [selectedDemo, setSelectedDemo] = useState<number>(1);
@@ -11,120 +57,86 @@ export const HearItInActionSection: React.FC<HearItInActionSectionProps> = ({ on
   const [mode, setMode] = useState<'mixmind' | 'spotify'>('mixmind');
   const [progress, setProgress] = useState<number>(0);
   const [currentTimeStr, setCurrentTimeStr] = useState<string>('0:00');
+  const [bars, setBars] = useState<number[]>(() => Array(BAR_COUNT).fill(6));
 
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const DEMOS = [
-    {
-      id: 0,
-      title: 'Party All Night (Extended)',
-      artist: 'Yo Yo Honey Singh',
-      key: '8B',
-      bpm: '130 BPM',
-      src: '/songs/party_all_night.mp3',
-      startTime: 30, // start at high-energy chorus
-      dur: '0:15'
-    },
-    {
-      id: 1,
-      title: 'Bollywood Club Blend',
-      artist: 'Honey Singh & Jaz Dhami',
-      key: '9A',
-      bpm: '130 BPM',
-      src: '/songs/high_heels.mp3',
-      startTime: 20,
-      dur: '0:15'
-    },
-    {
-      id: 2,
-      title: 'Desi Hip-Hop Bass Drop',
-      artist: 'Yo Yo Honey Singh',
-      key: '8A',
-      bpm: '128 BPM',
-      src: '/songs/blue_eyes.mp3',
-      startTime: 15,
-      dur: '0:15'
-    },
-    {
-      id: 3,
-      title: 'High-Energy Party Anthem',
-      artist: 'Yo Yo Honey Singh',
-      key: '8B',
-      bpm: '128 BPM',
-      src: '/songs/dope_shope.mp3',
-      startTime: 15,
-      dur: '0:15'
-    }
-  ];
+  const rafRef = useRef<number | null>(null);
+  const freqDataRef = useRef<Uint8Array<ArrayBuffer>>(new Uint8Array(64));
 
   const currentDemo = DEMOS[selectedDemo] || DEMOS[0];
 
-  const stopCurrentAudio = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+  const stopWaveformLoop = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
     }
+    setBars(Array(BAR_COUNT).fill(6));
+  }, []);
+
+  const stopCurrentAudio = useCallback(() => {
+    audioEngine.stopAllPreviews();
+    stopWaveformLoop();
     setIsPlaying(false);
     setProgress(0);
     setCurrentTimeStr('0:00');
-  };
+  }, [stopWaveformLoop]);
 
   useEffect(() => {
     return () => {
       stopCurrentAudio();
     };
-  }, []);
+  }, [stopCurrentAudio]);
+
+  // Live AnalyserNode animation loop
+  useEffect(() => {
+    if (!isPlaying) {
+      stopWaveformLoop();
+      return;
+    }
+
+    const tick = () => {
+      const hasLive = audioEngine.getFrequencyData(freqDataRef.current);
+      if (hasLive) {
+        const data = freqDataRef.current;
+        const nextBars: number[] = [];
+        for (let i = 0; i < BAR_COUNT; i++) {
+          const binIdx = Math.min(data.length - 1, Math.floor((i / BAR_COUNT) * (data.length * 0.75)));
+          const val = data[binIdx] || 0;
+          const scaled = 4 + (val / 255) * 26;
+          nextBars.push(Math.round(scaled));
+        }
+        setBars(nextBars);
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      stopWaveformLoop();
+    };
+  }, [isPlaying, stopWaveformLoop]);
 
   const playDemoTrack = async (demoIndex: number, currentMode: 'mixmind' | 'spotify' = mode) => {
     const targetDemo = DEMOS[demoIndex];
     if (!targetDemo) return;
 
-    // Clean up any ongoing timer/playback
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-
-    try {
-      const audio = new Audio(targetDemo.src);
-      audioRef.current = audio;
-      audio.volume = currentMode === 'mixmind' ? 1.0 : 0.65;
-      audio.currentTime = targetDemo.startTime;
-
-      await audio.play();
-      setIsPlaying(true);
-      setSelectedDemo(demoIndex);
-
-      const clipStart = Date.now();
-      const clipDuration = 15000; // 15s preview
-
-      timerRef.current = setInterval(() => {
-        const elapsed = Date.now() - clipStart;
-        const p = Math.min(100, (elapsed / clipDuration) * 100);
+    setSelectedDemo(demoIndex);
+    const ok = await audioEngine.playDemoClip(
+      targetDemo.src,
+      targetDemo.startTime,
+      currentMode,
+      (p, timeStr) => {
         setProgress(p);
+        setCurrentTimeStr(timeStr);
+      },
+      () => {
+        stopWaveformLoop();
+        setIsPlaying(false);
+        setProgress(0);
+        setCurrentTimeStr('0:00');
+      }
+    );
 
-        const secs = Math.floor(elapsed / 1000);
-        setCurrentTimeStr(`0:${secs < 10 ? '0' : ''}${secs}`);
-
-        // Simulate Spotify volume dip in 'spotify' mode during middle 5 seconds
-        if (currentMode === 'spotify' && audioRef.current) {
-          if (elapsed > 4000 && elapsed < 10000) {
-            audioRef.current.volume = 0.35; // standard dip
-          } else {
-            audioRef.current.volume = 0.65;
-          }
-        }
-
-        if (elapsed >= clipDuration) {
-          stopCurrentAudio();
-        }
-      }, 50);
-    } catch {
-      // Fallback if browser blocks unmuted audio
-      setIsPlaying(false);
-    }
+    setIsPlaying(ok);
   };
 
   const handleTogglePlay = () => {
@@ -136,7 +148,6 @@ export const HearItInActionSection: React.FC<HearItInActionSectionProps> = ({ on
   };
 
   const handleSelectTrack = (idx: number) => {
-    setSelectedDemo(idx);
     playDemoTrack(idx, mode);
   };
 
@@ -181,7 +192,7 @@ export const HearItInActionSection: React.FC<HearItInActionSectionProps> = ({ on
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
-        {/* Left Side: Real Audio Player & Waveform Box */}
+        {/* Left Side: Real Audio Player & Live AnalyserNode Waveform Box */}
         <div className="lg:col-span-6 bg-[#14141A] border border-white/[0.08] rounded-3xl p-6 flex flex-col justify-between shadow-xl min-h-[240px]">
           <div className="flex items-center justify-between text-xs font-mono">
             <span className="text-white font-bold">{currentDemo.title}</span>
@@ -212,18 +223,15 @@ export const HearItInActionSection: React.FC<HearItInActionSectionProps> = ({ on
             </div>
           </div>
 
-          {/* Animated Waveform Visualizer */}
+          {/* Live AnalyserNode Waveform Visualizer */}
           <div className="space-y-1.5">
-            <div className="flex items-center gap-1 h-8">
-              {Array.from({ length: 44 }).map((_, i) => {
-                const h = isPlaying
-                  ? Math.sin(i * 0.45 + (progress / 100) * 14) * 12 + 16
-                  : 6;
-                const isPlayed = i / 44 <= progress / 100;
+            <div className="flex items-end gap-1 h-8">
+              {bars.map((h, i) => {
+                const isPlayed = i / BAR_COUNT <= progress / 100;
                 return (
                   <div
                     key={i}
-                    className="flex-1 rounded-full transition-all duration-75"
+                    className="flex-1 rounded-full transition-[height] duration-75"
                     style={{
                       height: `${Math.max(4, h)}px`,
                       backgroundColor: isPlayed ? '#FF4D00' : '#2A2A36',

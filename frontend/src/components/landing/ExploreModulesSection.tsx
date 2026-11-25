@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ArrowRight, Cpu, Disc3, Sparkles, Sliders, Volume2, Play, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ArrowRight, Cpu, Disc3, Sparkles, Sliders, Volume2, CheckCircle2 } from 'lucide-react';
 import { YoutubeIcon } from '../youtube/YoutubeIcon';
 import { audioEngine } from '../../audio/audioEngine';
 
@@ -66,39 +66,23 @@ export const ExploreModulesSection: React.FC<ExploreModulesSectionProps> = ({ on
 
   const currentMod = modules.find((m) => m.id === activeModule) || modules[0];
 
+  useEffect(() => {
+    return () => {
+      audioEngine.stopAllPreviews();
+    };
+  }, []);
+
   const handleModuleClick = async (mod: typeof modules[0]) => {
     setActiveModule(mod.id);
     setIsPlayingAudio(true);
-
-    try {
-      await audioEngine.unlockAllAudio();
-
-      if (mod.soundType === 'airhorn') {
-        audioEngine.triggerAirhorn();
-      } else if (mod.soundType === 'bass') {
-        audioEngine.triggerSubDrop();
-      } else if (mod.soundType === 'phrase' || mod.soundType === 'harmonic' || mod.soundType === 'youtube') {
-        // Synthesize quick confirmation tone
-        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        if (AudioCtx) {
-          const ctx = new AudioCtx();
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = 'triangle';
-          osc.frequency.setValueAtTime(mod.id === '01' ? 440 : mod.id === '02' ? 523.25 : 659.25, ctx.currentTime);
-          gain.gain.setValueAtTime(0.18, ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start();
-          osc.stop(ctx.currentTime + 0.36);
-        }
-      }
-    } catch {
-      // Audio autoplay policy catch
-    }
-
+    await audioEngine.playModulePreview(mod.soundType);
     setTimeout(() => setIsPlayingAudio(false), 400);
+  };
+
+  const handleLaunchClick = () => {
+    audioEngine.stopAllPreviews();
+    audioEngine.stopAllFx();
+    onLaunchParty?.();
   };
 
   return (
@@ -155,7 +139,6 @@ export const ExploreModulesSection: React.FC<ExploreModulesSectionProps> = ({ on
                 </span>
               </div>
 
-              {/* Center Hardware Icon with Live Click Feedback */}
               <div className="my-3 flex items-center justify-center w-full">
                 <div
                   className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all ${
@@ -209,7 +192,11 @@ export const ExploreModulesSection: React.FC<ExploreModulesSectionProps> = ({ on
         <div className="flex items-center gap-2.5 w-full sm:w-auto shrink-0 justify-end">
           <button
             onClick={() => handleModuleClick(currentMod)}
-            className="px-3.5 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-xs font-headline font-bold text-white flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+            className={`px-3.5 py-2 rounded-xl border text-xs font-headline font-bold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 ${
+              isPlayingAudio
+                ? 'bg-[#FF4D00]/20 border-[#FF4D00] text-white'
+                : 'bg-white/[0.06] hover:bg-white/[0.12] border-white/10 text-white'
+            }`}
             title="Test Module Audio"
           >
             <Volume2 className="w-4 h-4 text-[#FF4D00]" />
@@ -218,7 +205,7 @@ export const ExploreModulesSection: React.FC<ExploreModulesSectionProps> = ({ on
 
           {onLaunchParty && (
             <button
-              onClick={onLaunchParty}
+              onClick={handleLaunchClick}
               className="px-4 py-2 rounded-xl bg-[#FF4D00] hover:bg-[#FF5A00] text-xs font-headline font-black text-white flex items-center gap-2 transition-all cursor-pointer shadow-md shadow-[#FF4D00]/30 active:scale-95"
             >
               <span>{currentMod.actionText}</span>

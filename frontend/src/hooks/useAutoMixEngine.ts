@@ -43,18 +43,16 @@ export function useAutoMixEngine({
   setTransitionPlan,
   onTransitionCompleted
 }: UseAutoMixEngineProps) {
-  // Deterministic state machine state
   const [engineState, setEngineState] = useState<AutoMixState>('IDLE');
   const [activeMasterDeck, setActiveMasterDeck] = useState<1 | 2>(1);
   const [autoDjCountdown, setAutoDjCountdown] = useState<number>(blendIntervalSeconds);
   const [autoDjPaused, setAutoDjPaused] = useState<boolean>(false);
 
-  // Transition locking & timer references
   const isTransitioningRef = useRef<boolean>(false);
+  const transitionMetaRef = useRef<{ fromDeck: 1 | 2; toDeck: 1 | 2 } | null>(null);
   const transitionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Ref tracking current states to avoid stale closures in timers
   const stateRef = useRef({
     deck1,
     deck2,
@@ -103,7 +101,6 @@ export function useAutoMixEngine({
     transitionPlan
   ]);
 
-  // Safe clamping utilities
   const clamp01 = (val: number): number => {
     if (isNaN(val)) return 0.5;
     return Math.max(0.0, Math.min(1.0, val));
@@ -114,7 +111,6 @@ export function useAutoMixEngine({
     return Math.max(0.0, Math.min(2.0, val));
   };
 
-  // Safe stem adjustment helper with smooth ramping
   const setStemSafe = useCallback(
     (deck: 1 | 2, stem: 'vocal' | 'instruments' | 'bass' | 'drums', val: number) => {
       const safeVal = clamp01(val);
@@ -128,7 +124,6 @@ export function useAutoMixEngine({
     [setDeck1, setDeck2]
   );
 
-  // Safe EQ adjustment helper
   const setEqSafe = useCallback(
     (deck: 1 | 2, band: 'low' | 'mid' | 'high', val: number) => {
       const safeVal = clampEq(val);
@@ -143,7 +138,6 @@ export function useAutoMixEngine({
     [setDeck1, setDeck2]
   );
 
-  // Safe filter adjustment helper
   const setFilterSafe = useCallback(
     (deck: 1 | 2, val: number) => {
       const safeVal = clamp01(val);
@@ -156,7 +150,6 @@ export function useAutoMixEngine({
     [setDeck1, setDeck2]
   );
 
-  // Safe crossfader adjustment
   const setCrossfaderSafe = useCallback(
     (val: number) => {
       const safeVal = clamp01(val);
@@ -166,73 +159,72 @@ export function useAutoMixEngine({
     [setCrossfader]
   );
 
-  // Whenever lockedPlaylist changes, ensure activeMasterDeck is 1 and auto-DJ is unpaused
   useEffect(() => {
     if (lockedPlaylist) {
+      if (transitionTimerRef.current) {
+        clearInterval(transitionTimerRef.current);
+        transitionTimerRef.current = null;
+      }
+      audioEngine.cancelPendingStarts();
       setActiveMasterDeck(1);
       setAutoDjCountdown(blendIntervalSeconds);
       setAutoDjPaused(false);
       isTransitioningRef.current = false;
+      transitionMetaRef.current = null;
       setCrossfaderSafe(0.0);
     }
   }, [lockedPlaylist, blendIntervalSeconds, setCrossfaderSafe]);
 
-  // Camelot wheel harmonic score
+  // Update countdown when pacing interval changes while not transitioning
+  useEffect(() => {
+    if (!isTransitioningRef.current) {
+      setAutoDjCountdown(blendIntervalSeconds);
+    }
+  }, [blendIntervalSeconds]);
+
+  // Camelot wheel harmonic score (0.0 to 1.0)
   const calculateHarmonicScore = (key1: string, key2: string): number => {
     const parse = (k: string) => {
       const num = parseInt(k.replace(/[^\d]/g, ''), 10) || 1;
       const letter = k.toUpperCase().includes('B') ? 'B' : 'A';
-      return { num, letter };
+      return { num: Math.max(1, Math.min(12, num)), letter };
     };
     const c1 = parse(key1);
     const c2 = parse(key2);
     if (c1.num === c2.num && c1.letter === c2.letter) return 1.0;
-    if (c1.letter === c2.letter && (Math.abs(c1.num - c2.num) === 1 || Math.abs(c1.num - c2.num) === 11)) return 0.92;
+    const wheelDist = Math.min(Math.abs(c1.num - c2.num), 12 - Math.abs(c1.num - c2.num));
+    if (c1.letter === c2.letter && wheelDist === 1) return 0.92;
     if (c1.num === c2.num && c1.letter !== c2.letter) return 0.85;
+    if (c1.letter === c2.letter && wheelDist === 2) return 0.72;
     return 0.4;
   };
 
-  // Queue next track on the newly idle deck
   const queueNextTrackOnIdleDeck = useCallback(
     (idleDeck: 1 | 2, currentMasterDeck: 1 | 2) => {
       const currentMasterTrack = currentMasterDeck === 1 ? stateRef.current.deck1.track : stateRef.current.deck2.track;
       if (!currentMasterTrack) return;
 
-      // ── STRICT TRACKLIST LOCKING ───────────────────────────────────────────────────────
-      // When a YouTube Playlist is locked, candidates are drawn EXCLUSIVELY from that playlist.
-      // Unavailable/deleted videos are filtered out.
-      // No external tracks, global library tracks, or fallback recommendations are EVER pulled!
       const isLocked = !!stateRef.current.lockedPlaylist;
       const effectivePool = isLocked
         ? stateRef.current.lockedPlaylist!.tracks.filter((t) => !t.isUnavailable)
         : stateRef.current.libraryTracks;
 
-      // Check if all playlist tracks have been played when repeat is disabled
       if (isLocked && stateRef.current.repeatPlaylist === false) {
         const playedIds = new Set(stateRef.current.sessionHistory.map((h) => h.track.id));
         playedIds.add(currentMasterTrack.id);
         const hasUnplayed = effectivePool.some((t) => !playedIds.has(t.id));
-        if (!hasUnplayed) {
-          console.info('[Locked Playlist DJ Mode] All tracks in playlist have been played and repeat is off. Clean stop.');
-          return;
-        }
+        if (!hasUnplayed) return;
       }
 
-      // 1. Unplayed tracks priority: guarantees EVERY song in the playlist is played before looping
       const allPlayedIds = new Set(stateRef.current.sessionHistory.map((h) => h.track.id));
       allPlayedIds.add(currentMasterTrack.id);
-
       const unplayedPool = effectivePool.filter((t) => !allPlayedIds.has(t.id));
 
       let candidatePool: Track[];
       if (unplayedPool.length > 0) {
         candidatePool = unplayedPool;
       } else {
-        if (isLocked && stateRef.current.repeatPlaylist === false) {
-          console.info('[Locked Playlist DJ Mode] All tracks in playlist played and repeat is off. Clean stop.');
-          return;
-        }
-        // Loop back: exclude the 3 most recently played tracks to prevent immediate repeats
+        if (isLocked && stateRef.current.repeatPlaylist === false) return;
         const recentlyPlayedIds = stateRef.current.sessionHistory.slice(0, 3).map((h) => h.track.id);
         candidatePool = effectivePool.filter(
           (t) => t.id !== currentMasterTrack.id && !recentlyPlayedIds.includes(t.id)
@@ -254,7 +246,6 @@ export function useAutoMixEngine({
       scored.sort((a, b) => b.score - a.score);
       const nextTrack = scored[0].track;
 
-      // Professional pitch calculation with half-time/double-time check & +/- 8% clamp
       let effectiveIncomingBpm = nextTrack.bpm;
       if (Math.abs(currentMasterTrack.bpm - nextTrack.bpm * 2) <= 8) {
         effectiveIncomingBpm = nextTrack.bpm * 2;
@@ -302,14 +293,13 @@ export function useAutoMixEngine({
     [setDeck1, setDeck2, setTransitionPlan]
   );
 
-  // Transition execution logic
   const executeTransition = useCallback(
     (fromDeck: 1 | 2, toDeck: 1 | 2) => {
       if (isTransitioningRef.current) return;
       isTransitioningRef.current = true;
+      transitionMetaRef.current = { fromDeck, toDeck };
       setEngineState('TRANSITIONING');
 
-      // Clear any pending transition timer
       if (transitionTimerRef.current) {
         clearInterval(transitionTimerRef.current);
         transitionTimerRef.current = null;
@@ -322,14 +312,17 @@ export function useAutoMixEngine({
         const incomingTrack = toDeck === 1 ? stateRef.current.deck1.track : stateRef.current.deck2.track;
         const incomingCue = incomingTrack?.introCueSec || incomingTrack?.firstBeatSec || 0.07;
         const nativeBpm = incomingTrack?.bpm || masterBpm;
+
         let effectiveBpm = nativeBpm;
         if (Math.abs(masterBpm - nativeBpm * 2) <= 8) effectiveBpm = nativeBpm * 2;
         else if (Math.abs(masterBpm - nativeBpm / 2) <= 6) effectiveBpm = nativeBpm / 2;
 
         const rawPitch = ((masterBpm - effectiveBpm) / effectiveBpm) * 100;
-        const pitchPct = Math.max(-8.0, Math.min(8.0, rawPitch));
+        const isExtremeBpm = Math.abs(rawPitch) > 8.0;
+        // If BPM gap is too large (> 8%), keep native tempo and use a clean phrase/drop transition
+        const pitchPct = isExtremeBpm ? 0.0 : Math.max(-8.0, Math.min(8.0, rawPitch));
 
-        // Start incoming deck with quantized downbeat launch & bass cut
+        audioEngine.setDeckPitch(toDeck, pitchPct);
         audioEngine.quantizedStart(fromDeck, toDeck, masterBpm, incomingCue);
 
         const incomingSetter = toDeck === 1 ? setDeck1 : setDeck2;
@@ -340,13 +333,13 @@ export function useAutoMixEngine({
           eqMid: 0.85,
           eqHigh: 1.0,
           filter: 0.5,
-          bpm: masterBpm,
+          bpm: isExtremeBpm ? nativeBpm : masterBpm,
           pitchPct,
           stems: { vocal: 0.0, instruments: 1.0, bass: 0.0, drums: 1.0 }
         }));
 
         let step = 0;
-        const totalSteps = 120; // 12 seconds across 100ms ticks
+        const totalSteps = isExtremeBpm ? 60 : 100; // 6s drop or 10s smooth blend
         const initialCf = stateRef.current.crossfader;
         const targetCf = toDeck === 1 ? 0.0 : 1.0;
 
@@ -355,17 +348,18 @@ export function useAutoMixEngine({
             step++;
             const progress = step / totalSteps;
 
-            // Maintain phase synchronization safely
-            audioEngine.lockPhase(fromDeck, toDeck, masterBpm, incomingCue);
+            if (!isExtremeBpm) {
+              audioEngine.lockPhase(fromDeck, toDeck, masterBpm, incomingCue);
+            }
 
             // Constant-power S-curve crossfade
             const sProgress = 0.5 * (1 - Math.cos(progress * Math.PI));
             const currentCf = initialCf + (targetCf - initialCf) * sProgress;
             setCrossfaderSafe(currentCf);
 
-            // Highpass riser on outgoing track
-            if (progress >= 0.28 && progress < 0.5) {
-              const riserProgress = (progress - 0.28) / 0.22;
+            // Highpass riser on outgoing track before midpoint
+            if (progress >= 0.25 && progress < 0.5) {
+              const riserProgress = (progress - 0.25) / 0.25;
               const sweepVal = 0.5 + riserProgress * 0.36;
               const outSetter = fromDeck === 1 ? setDeck1 : setDeck2;
               outSetter((d) => ({ ...d, filter: sweepVal }));
@@ -373,11 +367,18 @@ export function useAutoMixEngine({
 
             // Downbeat Bass Swap at 50% midpoint
             if (progress >= 0.5) {
+              const postMid = (progress - 0.5) / 0.5;
+              // Gently ramp incoming pitch back to 0% after midpoint
+              const rampedPitch = pitchPct * (1 - postMid);
+              audioEngine.setDeckPitch(toDeck, rampedPitch);
+
               if (toDeck === 1) {
                 setDeck1((d) => ({
                   ...d,
                   eqLow: 1.0,
                   filter: 0.5,
+                  pitchPct: rampedPitch,
+                  bpm: nativeBpm * (1 + rampedPitch / 100),
                   stems: { vocal: 1.0, instruments: 1.0, bass: 1.0, drums: 1.0 }
                 }));
                 setDeck2((d) => ({
@@ -391,6 +392,8 @@ export function useAutoMixEngine({
                   ...d,
                   eqLow: 1.0,
                   filter: 0.5,
+                  pitchPct: rampedPitch,
+                  bpm: nativeBpm * (1 + rampedPitch / 100),
                   stems: { vocal: 1.0, instruments: 1.0, bass: 1.0, drums: 1.0 }
                 }));
                 setDeck1((d) => ({
@@ -402,7 +405,6 @@ export function useAutoMixEngine({
               }
             }
 
-            // Transition Completion
             if (step >= totalSteps) {
               if (transitionTimerRef.current) {
                 clearInterval(transitionTimerRef.current);
@@ -410,10 +412,11 @@ export function useAutoMixEngine({
               }
 
               isTransitioningRef.current = false;
+              transitionMetaRef.current = null;
               setCrossfaderSafe(targetCf);
 
-              // Stop outgoing hardware playback
               audioEngine.setDeckPlaying(fromDeck, false);
+              audioEngine.setDeckPitch(toDeck, 0);
 
               const fromSetter = fromDeck === 1 ? setDeck1 : setDeck2;
               fromSetter((d) => ({
@@ -421,14 +424,23 @@ export function useAutoMixEngine({
                 isPlaying: false,
                 filter: 0.5,
                 eqLow: 1.0,
+                pitchPct: 0,
                 stems: { vocal: 1.0, instruments: 1.0, bass: 1.0, drums: 1.0 }
+              }));
+
+              const toSetter = toDeck === 1 ? setDeck1 : setDeck2;
+              toSetter((d) => ({
+                ...d,
+                pitchPct: 0,
+                bpm: d.track?.bpm || d.bpm,
+                filter: 0.5,
+                eqLow: 1.0
               }));
 
               setActiveMasterDeck(toDeck);
               setEngineState('PLAYING');
               setAutoDjCountdown(stateRef.current.blendIntervalSeconds);
 
-              // Record session history
               const playedTrack = toDeck === 1 ? stateRef.current.deck1.track : stateRef.current.deck2.track;
               if (playedTrack) {
                 const newHistoryItem: SessionHistoryItem = {
@@ -436,8 +448,8 @@ export function useAutoMixEngine({
                   track: playedTrack,
                   deck: toDeck,
                   playedAt: new Date().toLocaleTimeString(),
-                  transitionType: '32-BEAT BEAT-MATCHED BLEND',
-                  durationSec: 12
+                  transitionType: isExtremeBpm ? 'PHRASE DROP CUT' : '32-BEAT BEAT-MATCHED BLEND',
+                  durationSec: isExtremeBpm ? 6 : 10
                 };
                 setSessionHistory((h) => [newHistoryItem, ...h]);
               }
@@ -446,7 +458,6 @@ export function useAutoMixEngine({
                 onTransitionCompleted();
               }
 
-              // Queue next track on the now-idle deck
               queueNextTrackOnIdleDeck(fromDeck, toDeck);
             }
           } catch (stepErr) {
@@ -456,6 +467,7 @@ export function useAutoMixEngine({
       } catch (err) {
         console.error('[useAutoMixEngine] executeTransition error:', err);
         isTransitioningRef.current = false;
+        transitionMetaRef.current = null;
         setEngineState('PLAYING');
       }
     },
@@ -469,7 +481,62 @@ export function useAutoMixEngine({
     ]
   );
 
-  // Manual Trigger helper
+  // Cleanly abort an active crossfade and snap to target deck, or cycle the cued track
+  const skipToNextTrack = useCallback(() => {
+    audioEngine.cancelPendingStarts();
+
+    if (isTransitioningRef.current && transitionMetaRef.current) {
+      if (transitionTimerRef.current) {
+        clearInterval(transitionTimerRef.current);
+        transitionTimerRef.current = null;
+      }
+
+      const { fromDeck, toDeck } = transitionMetaRef.current;
+      isTransitioningRef.current = false;
+      transitionMetaRef.current = null;
+
+      const targetCf = toDeck === 1 ? 0.0 : 1.0;
+      setCrossfaderSafe(targetCf);
+
+      audioEngine.setDeckPlaying(fromDeck, false);
+      audioEngine.setDeckPitch(toDeck, 0);
+      audioEngine.setDeckPlaying(toDeck, true);
+
+      const fromSetter = fromDeck === 1 ? setDeck1 : setDeck2;
+      fromSetter((d) => ({
+        ...d,
+        isPlaying: false,
+        filter: 0.5,
+        eqLow: 1.0,
+        pitchPct: 0,
+        stems: { vocal: 1.0, instruments: 1.0, bass: 1.0, drums: 1.0 }
+      }));
+
+      const toSetter = toDeck === 1 ? setDeck1 : setDeck2;
+      toSetter((d) => ({
+        ...d,
+        isPlaying: true,
+        filter: 0.5,
+        eqLow: 1.0,
+        eqMid: 1.0,
+        eqHigh: 1.0,
+        pitchPct: 0,
+        bpm: d.track?.bpm || d.bpm,
+        stems: { vocal: 1.0, instruments: 1.0, bass: 1.0, drums: 1.0 }
+      }));
+
+      setActiveMasterDeck(toDeck);
+      setEngineState('PLAYING');
+      setAutoDjCountdown(stateRef.current.blendIntervalSeconds);
+      queueNextTrackOnIdleDeck(fromDeck, toDeck);
+      return;
+    }
+
+    const master = stateRef.current.activeMasterDeck;
+    const idle = master === 1 ? 2 : 1;
+    queueNextTrackOnIdleDeck(idle, master);
+  }, [setCrossfaderSafe, setDeck1, setDeck2, queueNextTrackOnIdleDeck]);
+
   const triggerManualTransition = useCallback(() => {
     if (isTransitioningRef.current || stateRef.current.manualTakeover) return;
 
@@ -491,7 +558,6 @@ export function useAutoMixEngine({
     executeTransition(outgoing, incoming);
   }, [executeTransition, setDeck1, setDeck2]);
 
-  // Deterministic Countdown Loop
   useEffect(() => {
     if (countdownIntervalRef.current) {
       clearInterval(countdownIntervalRef.current);
@@ -551,6 +617,14 @@ export function useAutoMixEngine({
     executeTransition
   ]);
 
+  useEffect(() => {
+    return () => {
+      if (transitionTimerRef.current) clearInterval(transitionTimerRef.current);
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+      audioEngine.cancelPendingStarts();
+    };
+  }, []);
+
   return {
     engineState,
     isTransitionExecuting: isTransitioningRef.current,
@@ -559,6 +633,7 @@ export function useAutoMixEngine({
     autoDjPaused,
     setAutoDjPaused,
     triggerManualTransition,
+    skipToNextTrack,
     queueNextTrackOnIdleDeck,
     setStemSafe,
     setEqSafe,

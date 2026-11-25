@@ -1,4 +1,4 @@
-const https = require('node:https');
+import https from 'node:https';
 
 const SAMPLE_AUDIO_FILES = [
   '/songs/party_all_night.mp3',
@@ -25,35 +25,62 @@ function hashString(str) {
 }
 
 function fetchYouTubeHtml(url, depth = 0) {
-  if (depth > 3) return Promise.resolve('');
+  if (depth > 3) return Promise.resolve({ html: '', statusCode: 310 });
   return new Promise((resolve) => {
-    https
-      .get(
-        url,
-        {
-          headers: {
-            'User-Agent':
-              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-            Cookie: 'SOCS=CAESEwgDEgk2OTQ0Mjg5MjgaAmVuIAEaBgiA_LyaBg;'
-          }
-        },
-        (res) => {
-          if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-            return fetchYouTubeHtml(res.headers.location, depth + 1).then(resolve);
-          }
-          let html = '';
-          res.on('data', (c) => (html += c));
-          res.on('end', () => resolve(html));
+    const req = https.get(
+      url,
+      {
+        timeout: 6500,
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+          Cookie: 'SOCS=CAESEwgDEgk2OTQ0Mjg5MjgaAmVuIAEaBgiA_LyaBg;'
         }
-      )
-      .on('error', () => resolve(''));
+      },
+      (res) => {
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          return fetchYouTubeHtml(res.headers.location, depth + 1).then(resolve);
+        }
+        let html = '';
+        res.on('data', (c) => (html += c));
+        res.on('end', () => resolve({ html, statusCode: res.statusCode || 200 }));
+      }
+    );
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ html: '', statusCode: 408 });
+    });
+    req.on('error', () => resolve({ html: '', statusCode: 502 }));
   });
 }
 
 async function scrapeYouTubePlaylist(playlistId) {
-  const html = await fetchYouTubeHtml(`https://www.youtube.com/playlist?list=${playlistId}`);
-  if (!html) return null;
+  const { html, statusCode } = await fetchYouTubeHtml(
+    `https://www.youtube.com/playlist?list=${encodeURIComponent(playlistId)}`
+  );
+
+  if (statusCode === 429) {
+    return { error: 'YouTube rate limit reached. Please wait a moment and try again.', status: 429 };
+  }
+  if (statusCode === 404) {
+    return { error: 'This YouTube playlist does not exist.', status: 404 };
+  }
+  if (!html) {
+    return { error: 'Could not reach YouTube servers in time.', status: 504 };
+  }
+
+  // Detect private or non-existent playlist warnings in YouTube HTML
+  if (
+    /This playlist is private/i.test(html) ||
+    /The playlist does not exist/i.test(html) ||
+    /"errorMessage".*?"private"/i.test(html)
+  ) {
+    return {
+      error: 'This YouTube playlist is private or unavailable. Set it to Public or Unlisted to mix it.',
+      status: 403
+    };
+  }
 
   const ogTitleMatch = html.match(/<meta property="og:title" content="([^"]+)"/);
   const pageTitleMatch = html.match(/<title>(.*?)<\/title>/);
@@ -137,7 +164,7 @@ async function scrapeYouTubePlaylist(playlistId) {
 
       extractVideos(data);
     } catch {
-      // Fallback
+      // Fallback to regex extraction below
     }
   }
 
@@ -154,7 +181,9 @@ async function scrapeYouTubePlaylist(playlistId) {
     });
   }
 
-  if (rawTracks.length === 0) return null;
+  if (rawTracks.length === 0) {
+    return { error: 'Could not extract playable videos from this playlist.', status: 404 };
+  }
 
   const tracks = rawTracks.map((raw, idx) => {
     const absHash = Math.abs(hashString(raw.youtubeId));
@@ -190,37 +219,48 @@ async function scrapeYouTubePlaylist(playlistId) {
   });
 
   return {
-    id: playlistId,
-    title: playlistTitle,
-    channelTitle,
-    url: `https://www.youtube.com/playlist?list=${playlistId}`,
-    trackCount: tracks.length,
-    tracks,
-    loopPlaylist: true,
-    lockedAt: new Date().toLocaleTimeString()
+    status: 200,
+    playlist: {
+      id: playlistId,
+      title: playlistTitle,
+      channelTitle,
+      url: `https://www.youtube.com/playlist?list=${playlistId}`,
+      trackCount: tracks.length,
+      tracks,
+      loopPlaylist: true,
+      lockedAt: new Date().toLocaleTimeString()
+    }
   };
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
   const { list } = req.query || {};
-  if (!list) {
-    return res.status(400).json({ success: false, error: 'Missing list parameter' });
+  if (!list || typeof list !== 'string' || !/^[a-zA-Z0-9_-]{4,128}$/.test(list.trim())) {
+    return res.status(400).json({ success: false, error: 'Invalid or missing YouTube playlist ID.' });
   }
 
   try {
-    const playlist = await scrapeYouTubePlaylist(list);
-    if (playlist && playlist.tracks && playlist.tracks.length > 0) {
-      return res.status(200).json({ success: true, playlist });
+    const result = await scrapeYouTubePlaylist(list.trim());
+    if (result.playlist && result.playlist.tracks && result.playlist.tracks.length > 0) {
+      return res.status(200).json({ success: true, playlist: result.playlist });
     }
-    return res.status(404).json({ success: false, error: 'Could not extract playlist' });
+    return res.status(result.status || 404).json({
+      success: false,
+      error: result.error || 'Could not extract playlist'
+    });
   } catch (err) {
-    return res.status(500).json({ success: false, error: err.message || 'Server error' });
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Server error while extracting YouTube playlist'
+    });
   }
 };

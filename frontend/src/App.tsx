@@ -173,6 +173,7 @@ export const App: React.FC = () => {
     isTransitionExecuting,
     activeMasterDeck,
     triggerManualTransition,
+    skipToNextTrack,
     queueNextTrackOnIdleDeck,
     setStemSafe,
     setEqSafe,
@@ -351,6 +352,7 @@ export const App: React.FC = () => {
 
   // Route & View Handlers
   const handleLaunchParty = () => {
+    audioEngine.stopAllPreviews();
     setCurrentRoute('app');
     setCurrentView('party');
     window.history.pushState({}, '', '/app/party');
@@ -358,6 +360,7 @@ export const App: React.FC = () => {
   };
 
   const handleExploreStudio = () => {
+    audioEngine.stopAllPreviews();
     setCurrentRoute('app');
     setCurrentView('studio');
     window.history.pushState({}, '', '/app/studio');
@@ -552,8 +555,15 @@ export const App: React.FC = () => {
             blendIntervalSeconds={blendIntervalSeconds}
             onBlendIntervalChange={(s) => setBlendIntervalSeconds(s)}
             onTriggerInstantMix={triggerManualTransition}
-            onSkipNextTrack={() => queueNextTrackOnIdleDeck(activeMasterDeck === 1 ? 2 : 1, activeMasterDeck)}
+            onSkipNextTrack={skipToNextTrack}
+            onChangeNextTrack={() => queueNextTrackOnIdleDeck(activeMasterDeck === 1 ? 2 : 1, activeMasterDeck)}
             isTransitionExecuting={isTransitionExecuting}
+            deck1Track={deck1.track}
+            deck2Track={deck2.track}
+            deck1Playing={deck1.isPlaying}
+            deck2Playing={deck2.isPlaying}
+            crossfader={crossfader}
+            isAudioMuted={isAudioMuted}
             libraryTracks={libraryTracks}
             lockedPlaylist={lockedPlaylist}
             onUnlockPlaylist={handleUnlockPlaylist}
