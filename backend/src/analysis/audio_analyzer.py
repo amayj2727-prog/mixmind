@@ -27,7 +27,7 @@ from .structure_detector import detect_structural_sections
 
 logger = logging.getLogger("AudioAnalysisEngine")
 
-DEFAULT_CACHE_DIR = os.path.expanduser("~/Desktop/MIXMIND/data/cache/analysis")
+DEFAULT_CACHE_DIR = os.environ.get("MIXMIND_CACHE_DIR", "/tmp/mixmind_cache/analysis")
 
 
 class AudioAnalyzer:
@@ -40,7 +40,8 @@ class AudioAnalyzer:
         filepath: str,
         file_hash: str = "",
         force_reanalysis: bool = False,
-        user_overrides: Optional[Dict[str, Any]] = None
+        user_overrides: Optional[Dict[str, Any]] = None,
+        max_duration: Optional[float] = None
     ) -> AudioAnalysisReport:
         """
         Runs comprehensive acoustic measurements and musical inferences.
@@ -65,7 +66,7 @@ class AudioAnalyzer:
         # 2. Load Audio Signal
         # Use 22.05 kHz mono for rapid, highly accurate feature extraction
         sr = 22050
-        y, file_info = self._load_audio(abs_path, target_sr=sr)
+        y, file_info = self._load_audio(abs_path, target_sr=sr, max_duration=max_duration)
         duration = file_info["duration"]
 
         if len(y) == 0:
@@ -137,7 +138,7 @@ class AudioAnalyzer:
         )
         return report
 
-    def _load_audio(self, filepath: str, target_sr: int = 22050):
+    def _load_audio(self, filepath: str, target_sr: int = 22050, max_duration: Optional[float] = None):
         """Loads audio signal and inspects technical stream metadata."""
         info = {
             "duration": 0.0,
@@ -155,8 +156,8 @@ class AudioAnalyzer:
         except Exception:
             pass
 
-        # Load with librosa
-        y, sr = librosa.load(filepath, sr=target_sr, mono=True)
+        # Load with librosa (capped by max_duration for rapid API analysis)
+        y, sr = librosa.load(filepath, sr=target_sr, mono=True, duration=max_duration)
         if info["duration"] == 0.0:
             info["duration"] = round(float(len(y) / sr), 2)
 
